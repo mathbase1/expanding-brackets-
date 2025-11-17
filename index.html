@@ -1,1 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>GCSE Bracket‑Expansion Grid Game</title>
 
+  <!-- Confetti -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js" defer></script>
+
+  <style>
+    :root{
+      --bg:#f7fafc; --card:#ffffff; --muted:#e5e7eb; --ink:#0f172a;
+      --brand:#2563eb; --brand-strong:#1e40af; --good:#16a34a; --bad:#dc2626;
+      --ring:#c1d2ff; --shadow:0 6px 18px rgba(0,0,0,.12);
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{height:100%}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,'Helvetica Neue',Arial;color:var(--ink);background:var(--bg);overflow:hidden}
+
+    /* App canvas that auto-scales to fit viewport (no scrolling) */
+    #app{width:980px; padding:22px 24px; margin:0 auto; transform-origin:top center}
+    .card{background:var(--card); border-radius:14px; box-shadow:var(--shadow); padding:16px 18px}
+
+    /* Headings / HUD */
+    h1{font-size:clamp(1.3rem,2.8vw,2rem); text-align:center; font-weight:800; letter-spacing:.2px}
+    .hud{display:flex; align-items:center; justify-content:space-between; gap:.75rem; margin:.65rem auto 0; max-width:880px}
+    .pill{display:inline-flex; align-items:center; gap:.55rem; background:var(--card); border:1px solid var(--muted); border-radius:999px; padding:.42rem .8rem; font-weight:700; font-size:.95rem; box-shadow:var(--shadow)}
+    .hint{opacity:.75; font-weight:500}
+
+    /* Panels */
+    .panel{margin:.9rem auto 0; max-width:880px}
+    .row{display:flex; align-items:center; justify-content:center; gap:.6rem; flex-wrap:wrap}
+
+    /* Question */
+    #question{font-size:clamp(1.1rem,2.2vw,1.5rem); text-align:center; font-weight:700}
+
+    /* Input + helpers */
+    #exprInput{
+      width:min(700px,78%); padding:.7rem 1rem; font-size:clamp(1rem,2.2vw,1.3rem);
+      text-align:center; border:2px solid var(--ring); border-radius:12px; background:#f5f8ff; color:#0b3aa6; font-weight:700
+    }
+    #exprInput:focus{outline:none; border-color:var(--brand); background:#fff}
+    .mini-btn{
+      border:2px solid var(--brand); padding:.45rem .85rem; border-radius:12px; font-size:clamp(.95rem,2vw,1.15rem);
+      background:#fafafa; color:var(--brand); cursor:pointer; font-weight:800
+    }
+    .mini-btn:hover{background:var(--brand); color:#fff}
+
+    /* Buttons */
+    .actions{display:flex; gap:.65rem; justify-content:center; margin-top:.6rem}
+    button.primary{background:var(--brand); color:#fff; border:none; border-radius:12px; padding:.6rem 1.2rem; font-size:1rem; font-weight:800; cursor:pointer}
+    button.primary:hover{background:var(--brand-strong)}
+    button.secondary{background:#9aa3af; color:#fff; border:none; border-radius:12px; padding:.6rem 1.2rem; font-size:1rem; font-weight:800; cursor:pointer}
+    button.primary:disabled{opacity:.45; cursor:not-allowed}
+
+    /* Feedback */
+    #feedback{font-weight:800; text-align:center; min-height:28px; margin-top:.5rem}
+    .good{color:var(--good)} .bad{color:var(--bad)}
+    #simpBadge{font-size:.9rem; opacity:.8}
+
+    /* Grid */
+    #gridWrap{display:flex; justify-content:center; gap:10px; margin-top:.6rem}
+    table{border-collapse:collapse}
+    td{border:2px solid var(--brand); padding:.45rem .55rem; text-align:center; font-size:clamp(.9rem,1.8vw,1.15rem); width:4.2rem; font-weight:700}
+    .grid-input{
+      width:3.8rem; padding:.3rem .25rem; font-size:1rem; text-align:center;
+      border:2px solid #bbb; border-radius:10px; background:#fafafa; color:#0b3aa6; font-weight:700
+    }
+    .grid-input:focus{outline:none; border-color:var(--brand); background:#fff}
+    .grid-number{font-weight:800}
+
+    /* Menu */
+    .menu-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+    .menu-grid > div{display:flex; flex-direction:column; gap:6px}
+    .menu-grid input, .menu-grid select{
+      padding:.55rem .6rem; font-size:1rem; border:2px solid var(--brand); border-radius:10px; background:#fff
+    }
+    .menu-actions{display:flex; justify-content:center; margin-top:.8rem}
+
+    /* Dialog */
+    .overlay{position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; visibility:hidden; opacity:0; transition:opacity .25s ease; z-index:9999}
+    .overlay.show{visibility:visible; opacity:1}
+    .dialog{background:#fff; padding:20px 22px; border-radius:12px; box-shadow:0 14px 40px rgba(0,0,0,.28); width:min(92vw, 420px)}
+    .dialog h2{margin:0 0 .5rem; font-size:1.25rem; color:#003360}
+    .sr{position:absolute !important; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0}
+  </style>
+</head>
+<body>
+  <main id="app" aria-live="polite">
+    <h1>Expand the brackets and enter the fully simplified expression</h1>
+
+    <!-- MENU -->
+    <section id="menu" class="panel card" role="region" aria-label="Game setup">
+      <div class="menu-grid">
+        <div>
+          <label for="studentName"><strong>Your name</strong></label>
+          <input id="studentName" type="text" placeholder="Enter name"/>
+        </div>
+        <div>
+          <label for="gameMode"><strong>Game mode</strong></label>
+          <select id="gameMode">
+            <option value="timed">Timed</option>
+            <option value="untimed">No time limit</option>
+            <option value="target">Target score</option>
+          </select>
+        </div>
+
+        <div id="timedBox">
+          <label for="timeLimit"><strong>Duration</strong></label>
+          <select id="timeLimit">
+            <option value="300">5 min</option>
+            <option value="600" selected>10 min</option>
+            <option value="900">15 min</option>
+          </select>
+        </div>
+
+        <div id="targetBox" style="display:none;">
+          <label for="targetScore"><strong>Target score</strong></label>
+          <input id="targetScore" type="number" min="1" placeholder="e.g. 10"/>
+        </div>
+      </div>
+      <div class="menu-actions">
+        <button id="startBtn" class="primary">Start</button>
+      </div>
+    </section>
+
+    <!-- HUD -->
+    <section id="hud" class="hud" style="display:none;" role="group" aria-label="Game status">
+      <span class="pill" id="statusLeft">Score 0</span>
+      <span class="hint">Tip: use ² and ³ buttons. Order of terms doesn’t matter — but answers must be simplified.</span>
+      <span class="pill" id="statusRight">Time 00:00</span>
+    </section>
+
+    <!-- GAME -->
+    <section id="gameArea" class="panel card" style="display:none;" role="region" aria-label="Game">
+      <p id="question"></p>
+
+      <div class="row" style="margin-top:.5rem">
+        <button id="toggleGrid" class="mini-btn" aria-expanded="false" aria-controls="gridWrap">Show grid</button>
+        <span id="simpBadge" class="pill">Simplified? —</span>
+      </div>
+
+      <div id="gridWrap" style="display:none; margin-top:.5rem"></div>
+
+      <div class="row" style="margin-top:.6rem">
+        <input id="exprInput" type="text" inputmode="text" placeholder="Type the full simplified expansion"/>
+        <button id="sqBtn"  class="mini-btn" title="Insert ²">x²</button>
+        <button id="cubeBtn" class="mini-btn" title="Insert ³">x³</button>
+      </div>
+
+      <div class="actions">
+        <button id="checkBtn" class="primary" disabled>Check</button>
+        <button id="skipBtn"  class="secondary">Skip</button>
+      </div>
+
+      <p id="feedback"></p>
+    </section>
+  </main>
+
+  <!-- End-of-game dialog -->
+  <div class="overlay" id="endOv" role="dialog" aria-modal="true" aria-labelledby="endTitle">
+    <div class="dialog">
+      <h2 id="endTitle">Finished</h2>
+      <p id="endMsg" style="margin:.4rem 0 .8rem;"></p>
+      <div class="row">
+        <button id="restartBtn" class="primary">Play again</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* =================== Fit-to-viewport (no scrolling) =================== */
+let SCALE=1;
+function fitToViewport(){
+  const app=document.getElementById('app');
+  app.style.transform='none';
+  const r=app.getBoundingClientRect(), m=16;
+  const sX=(window.innerWidth-m*2)/r.width;
+  const sY=(window.innerHeight-m*2)/r.height;
+  SCALE=Math.min(1, sX, sY);
+  app.style.transform=`scale(${SCALE})`;
+}
+window.addEventListener('resize', ()=>requestAnimationFrame(fitToViewport));
+window.addEventListener('DOMContentLoaded', fitToViewport);
+window.addEventListener('load', fitToViewport);
+
+/* =================== Helpers & math =================== */
+const MINUS='−', LETTERS=["x","y","a","b","m","n","p","q","r","t","v"];
+const rInt=(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+const pm=v=>v>=0?`+ ${v}`:`${MINUS} ${Math.abs(v)}`;
+const vStr=v=>v<0?`${MINUS}${Math.abs(v)}`:v.toString();
+const fmt=t=>`${String(t/60|0).padStart(2,'0')}:${String(t%60).padStart(2,'0')}`;
+
+function termSig(vars){return Object.keys(vars).sort().map(k=>vars[k]===1?k:`${k}^${vars[k]}`).join('');}
+function addToDict(o,s,c){if(!c)return; o[s]=(o[s]||0)+c; if(o[s]===0) delete o[s];}
+function normalizeDict(d){const out={}; for(const k in d){if(d[k]) out[k]=d[k]} return out;}
+function degreeOfSig(sig){ if(!sig) return 0; return sig.split(/(?=[a-z])/i).reduce((acc,part)=>{ if(!part) return acc; const m=part.match(/^([a-z])(?:\^(\d+))?$/i); return acc + (m? (m[2]?+m[2]:1) : 0); },0); }
+
+/* Detailed parser: returns { ok, dict, rawTerms, simplifiedStr, errors, hasDuplicates, hasPow1, hasZeroTerms } */
+function parseDetailed(str){
+  const raw=str||'';
+  let s=raw.replace(/\s+/g,'')
+           .replace(/−/g,'-')
+           .replace(/[×·*]/g,'')
+           .replace(/²/g,'^2').replace(/³/g,'^3');
+
+  if(!s) return {ok:false, errors:['empty']};
+
+  // reject invalid characters early
+  if(/[^a-z0-9+\-^()]/i.test(s)) return {ok:false, errors:['invalid_chars']};
+
+  // naive parentheses removal (we only expect sums of terms)
+  s=s.replace(/[()]/g,'');
+
+  // split into terms: turn "-" into "+-" except at start
+  s=s.replace(/(?<!^)-/g,'+-');
+  if(s[0]==='+') s=s.slice(1);
+  const parts=s.split('+').filter(Boolean);
+
+  const dict={}, rawTerms=[];
+  for(let p of parts){
+    let sign=1;
+    if(p[0]==='-'){sign=-1; p=p.slice(1);}
+    if(!p) return {ok:false, errors:['bad_term']};
+
+    const m=p.match(/^\d+/); // integer coeff
+    const coef=sign*(m? +m[0]: 1);
+    const rest=m? p.slice(m[0].length): p;
+
+    const vars={}, re=/([a-z])(?:\^(\d+))?/ig; let r, used=false;
+    while((r=re.exec(rest))){ used=true; vars[r[1]]=(vars[r[1]]||0) + (r[2]? +r[2]: 1); }
+    // Detect explicit ^1 in user input (unsimplified)
+    const hasPow1 = /\^[+]?\s*1(?!\d)/.test(rest);
+
+    // If no variables remain, it's a constant term
+    const sig = used ? termSig(vars) : '';
+
+    rawTerms.push({sig, coef});
+    addToDict(dict, sig, coef);
+
+    // mark unsimplified ^1
+    if(hasPow1) rawTerms[rawTerms.length-1].pow1=true;
+  }
+
+  // duplicates if same signature appears more than once with non-zero coefficient in raw terms
+  const counts={}; let hasDuplicates=false, hasPow1=false, hasZeroTerms=false;
+  for(const t of rawTerms){
+    if(t.coef===0){ hasZeroTerms=true; continue; }
+    counts[t.sig]=(counts[t.sig]||0)+1;
+    if(t.pow1) hasPow1=true;
+  }
+  for(const k in counts){ if(counts[k]>1) { hasDuplicates=true; break; } }
+
+  // Build a canonical simplified string for reference (descending degree, then lex)
+  const keys=Object.keys(dict).sort((a,b)=>{
+    const da=degreeOfSig(a), db=degreeOfSig(b);
+    if(db!==da) return db-da;
+    return a<b?-1: a>b?1:0;
+  });
+  const pieces=[];
+  keys.forEach((sig, i)=>{
+    const c=dict[sig];
+    const sign = c<0 ? (i===0? '-' : ' - ') : (i===0? '' : ' + ');
+    const abs = Math.abs(c);
+    const coefPart = sig ? (abs===1 ? '' : abs.toString()) : abs.toString(); // omit 1 before variables
+    const varPart = sig.replace(/\^/g,'^'); // keep ^; pretty print below if desired
+    pieces.push(`${sign}${coefPart}${varPart}`);
+  });
+  const simplifiedStr = pieces.join('').replace(/-/g,MINUS).replace(/\^2/g,'²').replace(/\^3/g,'³');
+
+  return {
+    ok:true,
+    dict:normalizeDict(dict),
+    rawTerms,
+    simplifiedStr,
+    hasDuplicates,
+    hasPow1,
+    hasZeroTerms,
+    errors:[]
+  };
+}
+
+/* Equality of dictionaries (order-free) */
+function dictEqual(a,b){
+  const ka=Object.keys(a), kb=Object.keys(b);
+  if(ka.length!==kb.length) return false;
+  for(const k of ka){ if(a[k]!==b[k]) return false; }
+  return true;
+}
+
+/* =================== Puzzle generators (zero-safe) =================== */
+function coeffClean(obj){ return normalizeDict(obj); }
+
+function singleBracket(){
+  const v=pick(LETTERS), k=rInt(2,6)*(Math.random()<.5?-1:1),
+        a=rInt(1,7)*(Math.random()<.5?-1:1), b=rInt(1,9)*(Math.random()<.5?-1:1);
+  return {
+    display:`Expand ${vStr(k)}(${vStr(a)}${v} ${pm(b)})`,
+    coeff: coeffClean({ [v]:k*a, '':k*b }),
+    grid:[{rows:[vStr(k)],cols:[vStr(a)+v, vStr(b)]}]
+  };
+}
+function doubleBracket(){
+  const v=pick(LETTERS),
+        a=rInt(1,6)*(Math.random()<.5?-1:1), b=rInt(1,6)*(Math.random()<.5?-1:1),
+        c=rInt(1,6)*(Math.random()<.5?-1:1), d=rInt(1,6)*(Math.random()<.5?-1:1);
+  return {
+    display:`Expand (${vStr(a)}${v} ${pm(b)})(${vStr(c)}${v} ${pm(d)})`,
+    coeff: coeffClean({ [`${v}^2`]:a*c, [v]:a*d+b*c, '':b*d }),
+    grid:[{rows:[vStr(a)+v, vStr(b)], cols:[vStr(c)+v, vStr(d)]}]
+  };
+}
+function xBracket3(){
+  const p=rInt(1,7);
+  return {
+    display:`Expand x(x ${MINUS} ${p})`,
+    coeff: coeffClean({'x^2':1, 'x':-p}),
+    grid:[{rows:['x'], cols:['x', vStr(-p)]}]
+  };
+}
+function xBracketSquared(){
+  const v=pick(LETTERS),
+        a=rInt(1,4)*(Math.random()<.5?-1:1),
+        b=rInt(1,4)*(Math.random()<.5?-1:1),
+        c=rInt(1,7)*(Math.random()<.5?-1:1);
+  const cDisp=t=>t===1?'':t===-1?MINUS:vStr(t);
+  const t1=`${cDisp(a)}${v}²`,
+        t2=`${b>=0?'+ ':`${MINUS} `}${cDisp(Math.abs(b))}${v}`,
+        t3=`${c>=0?'+ ':`${MINUS} `}${Math.abs(c)}`;
+  return{
+    display:`Expand ${v}(${t1} ${t2} ${t3})`,
+    coeff: coeffClean({ [`${v}^3`]:a, [`${v}^2`]:b, [v]:c }),
+    grid:[{rows:[v], cols:[
+      (a===1?'':a===-1?`${MINUS}`:vStr(a))+v+'²',
+      (b===1?'':b===-1?`${MINUS}`:vStr(b))+v,
+      vStr(c)
+    ]}]
+  };
+}
+function xBracketXY(){
+  const a=rInt(1,4)*(Math.random()<.5?-1:1),
+        b=rInt(1,5)*(Math.random()<.5?-1:1),
+        c=rInt(1,7)*(Math.random()<.5?-1:1);
+  const first =(a===1?'':vStr(a))+'x²',
+        second=b===1?'+ y':b===-1?`${MINUS} y`: `${pm(b)}y`,
+        third =pm(c);
+  return{
+    display:`Expand x(${first} ${second} ${third})`,
+    coeff: coeffClean({'x^3':a, 'xy':b, 'x':c}),
+    grid:[{rows:['x'], cols:[first.trim(), (b===-1?`${MINUS}`:vStr(b))+'y', vStr(c)]}]
+  };
+}
+function diffBracketCoeff(){
+  const v=pick(LETTERS), k1=rInt(2,6), k2=rInt(2,6),
+        a=rInt(1,7)*(Math.random()<.5?-1:1), b=rInt(1,7)*(Math.random()<.5?-1:1);
+  return{
+    display:`Expand ${k1}(${v} ${pm(a)}) ${MINUS} ${k2}(${v} ${pm(b)})`,
+    coeff: coeffClean({ [v]:k1-k2, '':k1*a - k2*b }),
+    grid:[
+      {rows:[vStr(k1)],  cols:[v, vStr(a)]},
+      {rows:[vStr(-k2)], cols:[v, vStr(b)]}
+    ]
+  };
+}
+function diffBracketPlain(){
+  const v=pick(LETTERS), k1=rInt(2,6),
+        a=rInt(1,7)*(Math.random()<.5?-1:1), b=rInt(1,7)*(Math.random()<.5?-1:1);
+  return{
+    display:`Expand ${k1}(${v} ${pm(a)}) ${MINUS} (${v} ${pm(b)})`,
+    coeff: coeffClean({ [v]:k1-1, '':k1*a - b }),
+    grid:[
+      {rows:[vStr(k1)], cols:[v, vStr(a)]},
+      {rows:[`${MINUS}1`], cols:[v, vStr(b)]}
+    ]
+  };
+}
+const makers=[singleBracket,doubleBracket,xBracket3,xBracketSquared,xBracketXY,diffBracketCoeff,diffBracketPlain];
+
+/* Grid builder */
+function buildGrid(o){
+  const wrap=document.createElement('div'); wrap.id='gridWrapInner';
+  o.grid.forEach(b=>{
+    const tbl=document.createElement('table'), td=t=>`<td class="grid-number">${t||''}</td>`;
+    tbl.innerHTML = b.rows.length===1
+      ? `<tr>${td('')}${b.cols.map(td).join('')}</tr>
+         <tr>${td(b.rows[0])}${b.cols.map(()=>td('<input class="grid-input" aria-label="grid cell input">')).join('')}</tr>`
+      : `<tr>${td('')}${b.cols.map(td).join('')}</tr>` +
+        b.rows.map(r=>`<tr>${td(r)}${b.cols.map(()=>td('<input class="grid-input" aria-label="grid cell input">')).join('')}</tr>`).join('');
+    wrap.appendChild(tbl);
+  });
+  return wrap;
+}
+
+/* =================== Game state & UI =================== */
+let mode='untimed', score=0, time=0, timer=null, target=null, current=null;
+
+const menu = document.getElementById('menu');
+const hud = document.getElementById('hud');
+const gameArea = document.getElementById('gameArea');
+
+const statusLeft = document.getElementById('statusLeft');
+const statusRight = document.getElementById('statusRight');
+
+const question = document.getElementById('question');
+const gridWrap = document.getElementById('gridWrap');
+const toggleGrid = document.getElementById('toggleGrid');
+
+const exprIn = document.getElementById('exprInput');
+const sqBtn = document.getElementById('sqBtn');
+const cubeBtn = document.getElementById('cubeBtn');
+const checkBtn = document.getElementById('checkBtn');
+const skipBtn = document.getElementById('skipBtn');
+const feedback = document.getElementById('feedback');
+const simpBadge = document.getElementById('simpBadge');
+
+const startBtn = document.getElementById('startBtn');
+const gameSel = document.getElementById('gameMode');
+const timedBox = document.getElementById('timedBox');
+const targetBox = document.getElementById('targetBox');
+
+const endOv = document.getElementById('endOv');
+const endMsg = document.getElementById('endMsg');
+document.getElementById('restartBtn').addEventListener('click', ()=>location.reload());
+
+gameSel.addEventListener('change', ()=>{
+  timedBox.style.display = gameSel.value==='timed' ? 'block' : 'none';
+  targetBox.style.display = gameSel.value==='target' ? 'block' : 'none';
+});
+
+startBtn.addEventListener('click', ()=>{
+  mode = gameSel.value;
+  score = 0;
+  if(mode==='timed') time = parseInt(document.getElementById('timeLimit').value,10);
+  if(mode==='target') target = parseInt(document.getElementById('targetScore').value,10) || 10;
+
+  menu.style.display='none';
+  hud.style.display='flex';
+  gameArea.style.display='block';
+
+  if(mode==='timed'){
+    timer=setInterval(()=>{
+      time--;
+      updateHud();
+      if(time<=0) endGame("⏰ Time’s up!");
+    }, 1000);
+  }
+
+  newPuzzle();
+  updateHud();
+  fitToViewport();
+});
+
+function updateHud(){
+  statusLeft.textContent = mode==='target' ? `Score ${score}/${target}` : `Score ${score}`;
+  statusRight.textContent = mode==='timed' ? `Time ${fmt(time)}` : 'No time limit';
+}
+
+/* Create a new puzzle */
+function newPuzzle(){
+  current = pick(makers)();
+  question.textContent = current.display;
+  gridWrap.innerHTML=''; gridWrap.style.display='none';
+  toggleGrid.setAttribute('aria-expanded','false');
+  toggleGrid.textContent='Show grid';
+  exprIn.value=''; feedback.textContent=''; feedback.className='';
+  simpBadge.textContent='Simplified? —';
+  checkBtn.disabled=true;
+}
+
+/* Toggle grid */
+toggleGrid.addEventListener('click', ()=>{
+  if(gridWrap.style.display==='none' || gridWrap.style.display===''){
+    gridWrap.innerHTML='';
+    gridWrap.appendChild(buildGrid(current));
+    gridWrap.style.display='flex';
+    toggleGrid.textContent='Hide grid';
+    toggleGrid.setAttribute('aria-expanded','true');
+  }else{
+    gridWrap.style.display='none';
+    toggleGrid.textContent='Show grid';
+    toggleGrid.setAttribute('aria-expanded','false');
+  }
+  fitToViewport();
+});
+
+/* Insert ² / ³ at caret */
+let lastInput=null;
+document.addEventListener('focusin',e=>{ if(e.target.tagName==='INPUT' || e.target.tagName==='TEXTAREA') lastInput=e.target; });
+function insertAtCaret(txt){
+  if(!lastInput) return;
+  const el=lastInput, p=el.selectionStart ?? el.value.length;
+  el.value = el.value.slice(0,p) + txt + el.value.slice(p);
+  el.focus(); el.setSelectionRange(p+txt.length,p+txt.length);
+  triggerLiveValidate();
+}
+sqBtn.addEventListener('mousedown',e=>e.preventDefault());
+cubeBtn.addEventListener('mousedown',e=>e.preventDefault());
+sqBtn.addEventListener('click', ()=>insertAtCaret('²'));
+cubeBtn.addEventListener('click', ()=>insertAtCaret('³'));
+
+/* Live validation: parseable + simplified indicator */
+function triggerLiveValidate(){
+  const parsed = parseDetailed(exprIn.value);
+  if(!parsed.ok){
+    checkBtn.disabled=true;
+    simpBadge.textContent='Simplified? —';
+    return;
+  }
+  const simplified = !parsed.hasDuplicates && !parsed.hasPow1 && !parsed.hasZeroTerms;
+  simpBadge.textContent = simplified ? 'Simplified? ✓' : 'Simplified? ✗';
+  checkBtn.disabled=false; // allow checking even if not simplified; we’ll enforce on Check
+}
+exprIn.addEventListener('input', triggerLiveValidate);
+
+/* Check answer (order-insensitive, simplified-only) */
+checkBtn.addEventListener('click', ()=>{
+  const student = parseDetailed(exprIn.value);
+  if(!student.ok){
+    showBad("Enter a valid expression.");
+    pulseInput();
+    return;
+  }
+  // Must be simplified: no duplicate like terms, no ^1, no explicit zero terms
+  const simplified = !student.hasDuplicates && !student.hasPow1 && !student.hasZeroTerms;
+  if(!simplified){
+    showBad("Your expansion isn’t fully simplified. Combine like terms and tidy notation (no x^1, no repeated like terms).");
+    pulseInput();
+    return;
+  }
+
+  // Compare to expected dictionary
+  const expected = normalizeDict(current.coeff);
+  if(!dictEqual(student.dict, expected)){
+    showBad("Incorrect. Check your expansion and signs.");
+    pulseInput();
+    return;
+  }
+
+  // Correct!
+  score++;
+  updateHud();
+  showGood("Correct! 🎉");
+  confetti({particleCount:120, spread:65, origin:{y:.65}});
+  if(mode==='target' && score>=target){ endGame("🎯 Target reached!"); return; }
+  setTimeout(()=>{ newPuzzle(); fitToViewport(); }, 900);
+});
+
+/* Skip */
+skipBtn.addEventListener('click', ()=>{
+  if(mode==='timed' && time<=0) return;
+  newPuzzle();
+  fitToViewport();
+});
+
+/* Enter key submits */
+document.addEventListener('keydown', e=>{
+  if(e.key==='Enter' && !checkBtn.disabled){
+    e.preventDefault();
+    checkBtn.click();
+  }
+});
+
+/* Feedback helpers */
+function showBad(msg){ feedback.textContent=msg; feedback.className='bad'; }
+function showGood(msg){ feedback.textContent=msg; feedback.className='good'; }
+function pulseInput(){
+  exprIn.style.borderColor='red';
+  setTimeout(()=>exprIn.style.borderColor='var(--ring)', 800);
+}
+
+/* Finish */
+function endGame(msg){
+  clearInterval(timer); timer=null;
+  document.getElementById('endTitle').textContent = 'Finished';
+  endMsg.textContent = msg + (mode==='timed' ? `  •  Final score: ${score}` : mode==='target' ? `  •  Score: ${score}/${target}` : `  •  Score: ${score}`);
+  endOv.classList.add('show');
+}
+</script>
+</body>
+</html>
